@@ -1,122 +1,74 @@
 # LLM review
 
 Assistant: OpenAI Codex  
-Model: GPT-6.1 Sol,Max
-
-Prompting this model with the request and specification below produced the following review. The original review was written in Russian; its English translation is recorded here.
+Model (as reported by the user): GPT-6.1 Sol  
+Reasoning effort (as reported by the user): Max
 
 ## Prompt used
 
 Review spec.md for completeness, consistency, and feasibility. Identify ambiguous requirements, contradictions, missing edge cases, and untestable acceptance criteria.
 
-## Review output 
+The assistant revised the specification and then reviewed the resulting version in the same conversation. This review applies to the corrected `spec.md` delivered alongside this file.
 
-The specification still permits different implementations. The output format and sorting rules are defined, but word recognition and normalization need clarification, and several examples need correction.
+## Latest review output
 
-### 1. The definition of a word is missing
+### Result
 
-Punctuation is described as a separator only in an example. State a general rule covering digits, apostrophes, hyphens, underscores, and whitespace.
+No unresolved contradictions or missing word-processing rules were identified in the revised specification.
 
-The current specification permits several interpretations:
+The specification defines the input contract, processing order, word boundaries, normalization, counting, sorting, output format, and behavior at the ten-item boundary.
 
-| Input | Possible interpretations |
-|---|---|
-| `"don't"` | One word, `don't`, or two words, `don` and `t` |
-| `"well-known"` | One word or two words |
-| `"cat2dog"` | One word, `cat2dog`; two words, `cat` and `dog`; or `catdog` after removing the digit |
-| `"one_two"` | One word or two words |
+### Findings from the previous review
 
-Choose the intended behavior and provide exact expected outputs.
+1. **Word recognition is now explicit.**
 
-Also specify whether all Unicode letters are supported or only particular alphabets. An alphabet list ending with “etc.” does not define an exact boundary.
+   Words begin with a Unicode letter and continue through letters and marks. Other characters act as separators. Leading marks are ignored.
 
-### 2. Case normalization is underspecified
+   Examples cover punctuation, apostrophes, hyphens, dashes, digits, underscores, whitespace, attached marks, and mixed scripts.
 
-“Case is ignored” does not identify the normalization operation.
+2. **Case normalization is now explicit.**
 
-One possible rule is:
+   Each extracted word is normalized using `str.lower()`. Returned words use this normalized representation.
 
-> Each extracted word is normalized using Python's `str.lower()`. The returned words are these normalized strings.
+   The `"Straße STRASSE"` example distinguishes lowercasing from case folding.
 
-Another possible choice is `str.casefold()`, but it can produce different results. For example, for `"Straße STRASSE"`:
+3. **Unicode normalization is now explicit.**
 
-- Using `lower()`: `[("strasse", 1), ("straße", 1)]`
-- Using `casefold()`: `[("strasse", 2)]`
+   NFC normalization is applied before word extraction. Canonically equivalent representations are merged.
 
-Choose an operation explicitly. Also clarify that preserving letters and diacritics still permits the specified case conversion.
+   Separate examples cover composed and decomposed Latin and Cyrillic characters, preservation of attached marks, and handling of leading marks.
 
-Reference: [Python string case folding](https://docs.python.org/3/library/stdtypes.html#str.casefold).
+4. **The ten-word limit now has a valid example.**
 
-### 3. Preserving diacritics does not define Unicode normalization
+   The specification includes an input with 11 unique words of equal frequency. The expected result contains exactly the first 10 words in Unicode lexical order.
 
-The same visible character can sometimes be represented by different Unicode sequences. For example, `й` can be represented as one character or as `и` followed by a combining breve.
+   This also defines selection when frequencies are equal at the cutoff.
 
-For the Python string literal `"й и\u0306"`, specify:
+5. **Expected outputs now match the declared return type.**
 
-- Whether both representations are counted as the same word with a count of 2.
-- Whether they remain distinct.
-- Whether combining marks are included in words.
+   All successful examples use lists of `(str, int)` tuples. Invalid-input examples explicitly require `TypeError`.
 
-NFC normalization can unify canonically equivalent representations while preserving diacritics. Explicitly state whether Unicode normalization is performed and the order of processing operations.
+6. **Examples now cover the stated processing decisions.**
 
-Reference: [Python Unicode normalization](https://docs.python.org/3/library/unicodedata.html#unicodedata.normalize).
+   The examples distinguish word forms, accented and unaccented words, different scripts, Unicode ordering, stop-word inclusion, and single-letter word inclusion.
 
-### 4. The truncation example does not test truncation
+### Executed verification
 
-The expression:
+A temporary Python reference implementation was written from the revised specification and executed against every example in its table.
 
-```python
-"x " * 15 + "y"
-```
+Environment:
 
-contains only two unique words. Its expected output, `[("x", 15), ("y", 1)]`, tests frequency counting and returning fewer than ten items.
+- Python 3.12.14.
+- Unicode database version 15.0.0.
 
-Correct the description of this example and remove the extra `12` before the expression.
+Results:
 
-To test the ten-word limit, use an input with more than ten unique words:
+- 24 valid-string examples produced their exact expected outputs.
+- 3 invalid-input examples raised `TypeError`.
+- All 27 checks passed.
 
-```text
-Input:
-"k j i h g f e d c b a"
+The verification used a temporary reference implementation. The submitted files remain `spec.md` and `llm-review.md`.
 
-Expected output:
-[("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1),
- ("f", 1), ("g", 1), ("h", 1), ("i", 1), ("j", 1)]
-```
+### Review conclusion
 
-This example tests tie ordering and selection at the ten-item boundary.
-
-### 5. Three expected outputs contradict the declared output format
-
-The Cyrillic, Kazakh, and punctuation examples omit the list brackets.
-
-Their expected outputs should be:
-
-| Input | Expected output |
-|---|---|
-| `"Привет привет ПРИВЕТ мир"` | `[("привет", 3), ("мир", 1)]` |
-| `"Сәлем сәлем Қазақстан"` | `[("сәлем", 2), ("қазақстан", 1)]` |
-| `"hello, hello! hello?"` | `[("hello", 3)]` |
-
-Place `""` and `"123 !!! ---"` in separate rows so that each row represents one concrete function call.
-
-### 6. Some specification decisions lack supporting examples
-
-The assignment requires at least one input and expected output for each decision.
-
-Add examples covering rules already stated in the specification:
-
-| Input | Expected output | Rule tested |
-|---|---|---|
-| `"b a"` | `[("a", 1), ("b", 1)]` | Ordering when frequencies are equal |
-| `"cat cats cat"` | `[("cat", 2), ("cats", 1)]` | Different word forms remain distinct |
-| `"cafe café"` | `[("cafe", 1), ("café", 1)]` | Diacritics are preserved |
-
-After clarifying word recognition and normalization, add examples for those decisions as well.
-
-Reference: [Top words assignment](https://github.com/bjones1/literate-programming-book/blob/main/exercises/top-words.md).
-
-### Minor corrections
-
-- Include the original requirement to use Python 3 and place the function in `top_words.py`.
-- In the Markdown file, write headings as `# Top words specification`, without wrapping the entire heading in `**`.
+The revised specification is sufficiently precise to implement and test using the stated Python Unicode operations. No further corrections were identified during this review.
