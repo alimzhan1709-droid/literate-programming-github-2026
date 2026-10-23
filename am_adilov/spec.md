@@ -13,16 +13,17 @@ def top_words(text: str) -> list[tuple[str, int]]: ...
 - Standard library only. The function is named `top_words` and lives in
   `top_words.py`.
 - Returns a list of `(word, count)` pairs, highest count first, ties broken as
-  in rule 15, holding at most ten pairs.
+  in rule 16, holding at most ten pairs.
 - Raise `TypeError` when `isinstance(text, str)` is false. A `str` subclass is
-  accepted, and its keys come back as plain `str`.
+  accepted, and the words in the returned pairs are plain `str`.
 - No other exception is raised: every `str` has an answer, including `""` and
   strings holding unpaired surrogates.
 - Conformance is judged on CPython 3.13 (`unicodedata.unidata_version`
-  `15.1.0`), which the examples were produced on. The function needs Python
-  3.11 or later. Results may differ on another version only for characters
-  whose category, case folding or decomposition changed; no example here uses
-  such a character.
+  `15.1.0`), which the examples were produced on. Results may differ on
+  another version only for characters whose category, case folding or
+  decomposition changed; no example here uses such a character. Nothing else
+  is version-gated: the annotations above need Python 3.9 or later, and the
+  rules use no newer syntax or library behavior.
 
 ## The pipeline
 
@@ -41,12 +42,15 @@ def top_words(text: str) -> list[tuple[str, int]]: ...
    (U+0439) typed as `и` + U+0306, and `ё` (U+0451) typed as `е` + U+0308 are
    composed to their single-code-point forms. The nine Kazakh-specific letters
    (`ә ғ қ ң ө ұ ү һ і`) have no decomposition, so NFC leaves them alone.
-4. Every character of category `Mn` or `Mc` that follows an alphabetic
-   character is then deleted. These are the combining marks NFC could not
-   compose, and deleting them keeps a marked word whole instead of splitting
-   it: Russian stress marking (`мо́лодец`, U+0301) counts as the unmarked word,
-   and a hand-rolled `ө` written as `о` + U+0335 counts as `о`. A mark not
-   preceded by a letter is left alone and separates words under rule 11.
+4. Combining marks inside words are then deleted, left to right: a character
+   of category `Mn` or `Mc` is deleted when the nearest preceding character
+   that has not itself been deleted is alphabetic. A run of marks after a
+   letter is therefore deleted entirely, however long. These are the marks NFC
+   could not compose, and deleting them keeps a marked word whole instead of
+   splitting it: Russian stress marking (`мо́лодец`, U+0301) counts as the
+   unmarked word, and a hand-rolled `ө` written as `о` + U+0335 counts as `о`.
+   A mark with no such preceding character is left alone and separates words
+   under rule 11.
 
 ## What counts as a word
 
@@ -86,12 +90,16 @@ def top_words(text: str) -> list[tuple[str, int]]: ...
 ## How words are grouped
 
 13. Words are compared after `str.casefold()`. Casefolding is not a plain
-    lowercasing: it can change a word's length and emit characters that
-    cannot occur in a word (`İ` → `i` + U+0307, `ŉ` → `ʼ` + `n`, `ß` → `ss`).
+    lowercasing: it can change a word's length (`ß` → `ss`), emit a combining
+    mark, which cannot occur in a word (`İ` → `i` + U+0307), and emit a
+    joiner in a position a word cannot start with (`ŉ` → `ʼ` + `n`).
     Rules 1 and 4 then re-normalize and delete the combining marks, so
     `İnternet` groups with `internet` rather than standing alone — which
-    matters because Kazakh Latin has both `I ı` and `İ i`, and sentences start
-    with capitals.
+    matters because Kazakh Latin writes `İ` at the start of a sentence and
+    `i` inside one. Dotless `I` is a known limitation: it casefolds to `i`,
+    not to `ı`, so a sentence-initial dotless-`I` word does not group with
+    its `ı` forms. Folding it the other way would break English `I`, and
+    telling the two apart needs language detection, which is out of scope.
 14. Every U+0451 (`ё`), in any language, is replaced by U+0435 (`е`). Leading
     and trailing joiners are then trimmed, which is what turns casefolded
     `ŉ` into the word `n`. The spelling returned is this fully folded one:
@@ -110,7 +118,7 @@ def top_words(text: str) -> list[tuple[str, int]]: ...
 17. Keep the first ten pairs and discard the rest. Ties are cut by rule 16's
     order, not by input order, so when more words tie than there is room for,
     which of them survive is still fully determined: in the eleven-way tie of
-    the last example row, `k` is the word dropped.
+    the `"a b c d e f g h i j k"` row, `k` is the word dropped.
 18. Return every word when the article has ten or fewer distinct words; the
     list is not padded. In particular, text with no words at all gives `[]`.
 19. No stop-word removal and no minimum length. `the`, `и`, `және` and the
@@ -152,6 +160,7 @@ these rules on CPython 3.13.
 | `"ЁЖ ёж"` | `[("еж", 2)]` | uppercase `Ё` folds too, because casefolding runs first (1, 14) |
 | `"мо\u0301лодец молодец"` | `[("молодец", 2)]` | a Russian stress mark is deleted, not treated as a separator (4) |
 | `"о\u0335й"` | `[("ой", 1)]` | likewise for a mark NFC cannot compose (4) |
+| `"мо\u0335\u0301лодец молодец"` | `[("молодец", 2)]` | a whole run of marks is deleted, not just the first (4) |
 | `"и\u0306 й"` | `[("й", 2)]` | NFC composes the decomposed `й` (3) |
 | `"İnternet internet"` | `[("internet", 2)]` | `İ` casefolds to `i` + U+0307, whose mark is then deleted (13) |
 | `"үй уй"` | `[("уй", 1), ("үй", 1)]` | Kazakh `ү` and `у` stay distinct; `у` (U+0443) sorts before `ү` (U+04AF) (15, 16) |
@@ -162,7 +171,7 @@ these rules on CPython 3.13.
 | `"the cat and the dog"` | `[("the", 2), ("and", 1), ("cat", 1), ("dog", 1)]` | no stop-word removal (19) |
 | `"мы с тобой"` | `[("мы", 1), ("с", 1), ("тобой", 1)]` | no minimum length: `с` counts (19) |
 | `"b c a"` | `[("a", 1), ("b", 1), ("c", 1)]` | an all-tie result is alphabetical, not input order (16) |
-| `"кот коты кот-а"` | `[("кот", 1), ("кот-а", 1), ("коты", 1)]` | a prefix sorts first, and a joiner sorts below any letter (16) |
+| `"кот коты кот-а"` | `[("кот", 1), ("кот-а", 1), ("коты", 1)]` | a prefix sorts first; comparison is by raw code point, joiners included, and U+002D is below `ы` (16) |
 | `"a b c d e f g h i j k"` | `[("a", 1), ("b", 1), ("c", 1), ("d", 1), ("e", 1), ("f", 1), ("g", 1), ("h", 1), ("i", 1), ("j", 1)]` | eleven tied words cut to ten by code point; `k` is dropped (16, 17) |
 | `"\ud800"` | `[]` | an unpaired surrogate is a separator, not an error (interface, 11) |
 | `MyStr("a b a")`, a `str` subclass | `[("a", 2), ("b", 1)]` | subclasses are accepted (interface) |
