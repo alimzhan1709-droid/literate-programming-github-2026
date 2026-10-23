@@ -1,160 +1,128 @@
-Prompting GPT-6, Instant, with "Review the following specification: ", produced
+Prompting GPT-6, High effort, with "Review the following specification: ", produced
 the following output; strikethrough indicates LLM output that I deemed incorrect
 or irrelevant."
 ================================================================================
 
-Specification review: Top words
--------------------------------
+## Specification Review: Top Words
 
-**Verdict:** The specification is clear, internally consistent, and
-implementable using Python 3's standard library. All 15 examples appear
-consistent with the stated rules.
+## Overall assessment
 
-There are a few details worth highlighting to avoid implementation mistakes.
+**Verdict: Ready for implementation.** The specification is clear, internally consistent, and implementable using Python 3's standard library. It defines tokenization, Unicode normalization, case conversion, validation, frequency counting, sorting, and output formatting precisely.
 
-1\. Tokenization and validation are separate steps
---------------------------------------------------
+No blocking contradictions were found between the requirements and examples.
 
-The specification requires two distinct operations:
+## 1. Requirements analysis
 
-1. Split the input into maximal consecutive sequences of allowed Latin or
-   Cyrillic characters.
-2. Discard any resulting token containing characters from both alphabets.
+| Requirement | Assessment |
+|---|---|
+| Function signature | Clear: `top_words(text: str) -> OrderedDict` in `top_words.py` |
+| Input validation | Clear: raise `TypeError` for non-`str` inputs |
+| Unicode normalization | Clear: NFC |
+| Allowed characters | Explicitly enumerated Latin and Cyrillic alphabets |
+| Tokenization | Maximal nonempty runs of allowed characters |
+| Lowercase conversion | Clear: use `str.lower()` after splitting |
+| Mixed-script tokens | Explicitly discarded, not split |
+| Frequency storage | A Python `dict` is required |
+| Sorting | Deterministic: ascending by `(-frequency, word)` |
+| Result size | At most 10 unique valid words |
+| Return type | `collections.OrderedDict` |
+| Empty input | Covered by an example |
+
+## 2. Important implementation details
+
+### A. Normalize before tokenization
 
 For example:
 
 ```python
-"helloпривет hello привет"
+text = "е\u0308еее"
 ```
 
-The first token, `helloпривет`, must be **discarded entirely**, not split into
-`hello` and `привет`.
+NFC normalization converts this into `"ёеее"`, which is one valid token. If tokenization happens first, the combining mark could incorrectly act as a delimiter.
 
-The resulting frequencies are:
+### B. Discard mixed-script tokens entirely
 
-```python
-OrderedDict({"hello": 1, "привет": 1})
-```
+| Input | Required behavior |
+|---|---|
+| `helloпривет` | Discard the entire token |
+| `hello-привет` | Count `hello` and `привет` |
+| `сәлемпривет` | Count as one Cyrillic token |
+| `catкот dog` | Count only `dog` |
 
-Kazakh and Russian characters belong to the same Cyrillic set, so `сәлемпривет`
-is a valid single word.
+Latin and Cyrillic letters that look alike must remain distinct.
 
-## <s>2\. Unicode handling needs to be explicit</s>
+### C. Lowercase after splitting
 
-<s>The specification correctly avoids Unicode normalization and restricts which
-characters are permitted.</s>
+The specification requires `str.lower()`, **not** `str.casefold()`. Token validity is checked after lowercasing, but token boundaries are determined using the explicitly allowed characters.
 
-<s>For example:</s>
+### D. Use the explicit character sets
 
-<s> </s><s>`ё` is one allowed character.`е\u0308` consists of an allowed `е`
-followed by a disallowed combining mark.</s>
+Do not use `str.isalpha()`, `\w`, or a Unicode-wide letter matcher to determine allowed characters: those would accept letters outside the specified alphabets.
 
-* <s>`İ` is not an allowed Latin character and therefore acts as a
-  delimiter.</s> <s> Avoid using `str.isalpha()`, `str.islower()`, or `\w` for
-  tokenization because they accept characters outside the specified
-  alphabets.</s>
+For example, the initial `İ` in `İstanbul` is not allowed and acts as a delimiter, so the remaining `stanbul` is counted.
 
-3\. Sorting is deterministic
-----------------------------
-
-The sorting rule:
+### E. Use the exact sort key
 
 ```python
 (-frequency, word)
 ```
 
-ensures that words are ordered by descending frequency, with alphabetical order
-breaking ties.
+Higher counts sort first. Equal counts are ordered by the lowercase word's Unicode code points using Python's ordinary string comparison.
 
-The result must contain at most 10 entries, even when more than 10 distinct
-valid words occur.
+## 3. Suggested specification improvements
 
-4\. Reference implementation
-----------------------------
+These are clarifications, not defects.
 
-Here is an implementation that follows the specification.
+### <s>Improvement 1: State the processing order explicitly</s>
+<s>
+1. Validate that `text` is a `str`; otherwise raise `TypeError`.
+2. Normalize with Unicode NFC.
+3. Split into maximal runs of the explicitly allowed characters.
+4. Convert each token to lowercase with `str.lower()`.
+5. Discard any token containing both Latin and Cyrillic characters.
+6. Count valid tokens in a Python `dict`.
+7. Sort items by `(-frequency, word)`.
+8. Keep the first 10 items.
+9. Return them as a `collections.OrderedDict`.
+</s>
+
+### <s>Improvement 2: Clarify that NFC does not expand the alphabet</s>
+
+<s>For example, a precomposed accented Latin letter such as `é` is still disallowed and acts as a delimiter. </s>
+
+### <s>Improvement 3: Add tests for wrong input types</s>
 
 ```python
-import re
-from collections import OrderedDict
-
-LATIN = (
-    "abcdefghijklmnopqrstuvwxyz"
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-)
-
-CYRILLIC = (
-    "абвгдежзийклмнопрстуфхцчшщъыьэюяё"
-    "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯЁ"
-    "әғқңөұүһіӘҒҚҢӨҰҮҺІ"
-)
-
-ALLOWED = LATIN + CYRILLIC
-TOKEN_PATTERN = re.compile(f"[{ALLOWED}]+")
-
-LATIN_SET = set(LATIN)
-CYRILLIC_SET = set(CYRILLIC)
-
-
-def top_words(text: str) -> OrderedDict:
-    frequencies = {}
-
-    for token in TOKEN_PATTERN.findall(text):
-        word = token.lower()
-
-        if not (
-            all(char in LATIN_SET for char in word)
-            or all(char in CYRILLIC_SET for char in word)
-        ):
-            continue
-
-        frequencies[word] = frequencies.get(word, 0) + 1
-
-    sorted_words = sorted(
-        frequencies.items(),
-        key=lambda item: (-item[1], item[0])
-    )
-
-    return OrderedDict(sorted_words[:10])
+top_words(None)  # raises TypeError
+top_words(123)   # raises TypeError
+top_words([])    # raises TypeError
 ```
 
-5\. Suggested specification improvements
-----------------------------------------
+## 4. <s>Additional recommended test cases</s>
 
-| Area               | Assessment           | Recommendation                                           |
-| ------------------ | -------------------- | -------------------------------------------------------- |
-| Character sets     | Clear                | Keep explicit character lists                            |
-| Tokenization       | Clear                | Emphasize maximal consecutive sequences                  |
-| Mixed alphabets    | Clear                | Keep the discard-entire-token rule                       |
-| Case conversion    | Clear                | Specify validation after `str.lower()` as already done   |
-| Sorting            | Clear                | No changes needed                                        |
-| Return type        | Clear                | Optionally annotate `OrderedDict[str, int]`              |
-| <s>Performance</s> | <s>Not specified</s> | <s>Optionally define expectations for large articles</s> |
-| Unicode            | Clear                | Keep the no-normalization rule                           |
+| Input | Expected output |
+|---|---|
+| `"abcАБВ"` | `OrderedDict()` |
+| `"abc-АБВ"` | `OrderedDict({"abc": 1, "абв": 1})` |
+| `"ҚАЗАҚ қазақ"` | `OrderedDict({"қазақ": 2})` |
+| `"a A а А"` | `OrderedDict({"a": 2, "а": 2})` |
+| `"hello\nworld\thello"` | `OrderedDict({"hello": 2, "world": 1})` |
+| `"12345"` | `OrderedDict()` |
+| `"!!!"` | `OrderedDict()` |
 
-<s>One subtle consideration: the specification validates tokens **after**
-lowercasing. That ordering should remain explicit, since Python's Unicode
-lowercase behavior can sometimes change the number of code points.</s>
+<s>
+The fourth test is especially useful: Latin `a` and Cyrillic `а` look similar but must be counted separately.
+</s>
 
-6\. Complexity
---------------
+## 5. Complexity expectations
 
-Let $n$ be the number of characters in the input and $k$ the number of distinct
-valid words.
+For an implementation that scans the normalized text, builds a frequency dictionary, and sorts all distinct valid words:
 
-* Tokenization and frequency counting: $O(n)$
-* Sorting: $O(k \log k)$
-* Total time: $O(n + k \log k)$
-* Auxiliary space: $O(n + k)$ in this implementation, accounting for the token
-  list returned by `findall()`.
+- **Time:** `O(n + k log k)`, where `n` is the text length and `k` is the number of distinct valid words.
+- **Space:** Up to `O(n + k)` with ordinary token storage, potentially less temporary storage with incremental tokenization.
 
-For typical news articles, this is efficient.
+No specific performance limit or large-input optimization is mandated.
 
----
+## Final verdict
 
-**Final assessment:** The specification is ready for implementation. I would not
-change its functional requirements. The most important tests are mixed-script
-tokens, combining Unicode characters, equal-frequency ordering, and the 10-word
-limit. <s> One useful addition would be a test containing mixed-case Kazakh
-Cyrillic characters to verify that case folding and frequency counting work
-correctly across all supported alphabets.</s>
+**Ready for implementation.** The main pitfalls are incorrect normalization order, splitting rather than rejecting mixed-script tokens, allowing unspecified Unicode letters, and incorrect tie-breaking. Keeping the existing requirements and examples while adding the suggested edge-case tests should be sufficient.
