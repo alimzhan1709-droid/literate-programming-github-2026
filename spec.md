@@ -1,10 +1,10 @@
 Top words
 =========
 
-We have a "Trending words" box beside each article on a news site. And you need
-to write a function on a Python that will find 10 most common words in an
-article's text, including how many times each one of them appears. Articles may
-be in English, Russian, or Kazakh
+We have a "Trending words" box beside each article on a news site. 
+And you need to write a function on a Python that will find 10 most common words in anarticle's text, including how many times each one of them appears. 
+Articles may be in English, Russian, or Kazakh. 
+Consider the case where decomposed unicode or apostrophes may split the words
 
 | Input                      | Expected output         |
 | -------------------------- | ----------------------- |
