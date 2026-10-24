@@ -1,112 +1,158 @@
 
 # Specification: `top_words`
 
-## 1. Overview and Interface
+## 1. Original Problem Statement
+Quoted from the e-book:
+> "A news site shows a 'Trending words' box beside each article. Write a Python function that finds the 10 most common words in an article's text, along with how many times each one appears. Articles may be in English, Russian, or Kazakh."
 
-Write a Python 3 function named `top_words` in a module named `top_words.py`.
+---
+
+## 2. Overview and Interface
+
+- **Language requirement**: Python 3.9+ (utilizing built-in generic type hints `list[tuple[str, int]]`).
+- **Module & Function**: Module `top_words.py`, function `top_words`.
 
 ```python
 def top_words(text: str) -> list[tuple[str, int]]:
     """Return the top 10 most frequent words in `text` and their counts."""
 
-Return Format
+Return Contract
 
 The function returns a list of (word, count) tuples:
 
-  - word (str): Lowercased word string.
-  - count (int): Number of occurrences in the text.
-  - The list contains at most 10 elements, sorted by:
+  - word (str): Normalized lowercase word string.
+  - count (int): Exact integer number of occurrences in the text.
+  - The returned list contains at most 10 elements, ordered by:
     1.  count in descending order.
-    2.  word in ascending lexicographical (Unicode code point) order for ties.
+    2.  word in ascending Unicode code-point order for ties.
 
-2. Specification Decisions and Disambiguation
+3. Specification Decisions and Disambiguation
 
-Below are the explicit architectural decisions resolving all ambiguities of the
-original problem, accompanied by test examples that disambiguate alternative
-plausible interpretations.
+Decision 1: Explicit Code-Point Word Definition & Unicode Normalization
 
-Decision 1: Multilingual Word Definition (English, Russian, Kazakh)
+  - Normalization: The input text is first normalized to Unicode NFC
+    (unicodedata.normalize('NFC', text)). This ensures decomposed character
+    sequences (such as NFD е + \u0308 for ё) are composed into single code
+    points before tokenization.
+  - Allowed Characters: A word is a maximal contiguous sequence of characters
+    belonging strictly to the following Unicode code-point ranges:
+      - Basic Latin (English):
+          - Uppercase A–Z: U+0041 to U+005A
+          - Lowercase a–z: U+0061 to U+007A
+      - Russian Cyrillic:
+          - А–Я: U+0410 to U+042F
+          - а–я: U+0430 to U+044F
+          - Ё: U+0401, ё: U+0451
+      - Kazakh Cyrillic Extensions:
+          - Ә (U+04D8), ә (U+04D9)
+          - Ғ (U+0492), ғ (U+0493)
+          - Қ (U+049A), қ (U+049B)
+          - Ң (U+04A2), ң (U+04A3)
+          - Ө (U+04E8), ө (U+04E9)
+          - Ұ (U+04B0), ұ (U+04B1)
+          - Ү (U+04AE), ү (U+04AF)
+          - Һ (U+04BA), һ (U+04BB)
+          - І (U+0406), і (U+0456)
+  - Mixed Scripts: Mixed-script sequences containing both Latin and Cyrillic
+    allowed code points (e.g., Пpивeт using Latin p and e) form a single word
+    token.
+  - Disallowed Characters & Fragmentation: Any character outside these explicit
+    ranges (including ASCII digits 0–9, accented Latin characters like é
+    (U+00E9), and Kazakh Latin letters like ä, ş, ğ) acts as a delimiter and
+    fragments words.
+  - Rejected alternative: Allowing ASCII digits in words (e.g., "covid19" \to
+    "covid").
+  - Rejected alternative: Supporting arbitrary Unicode letters outside the
+    specified languages (e.g., French "café" \to "caf").
 
-  - Rule: A word is a contiguous sequence of alphabetic characters belonging to:
-      - Basic Latin (English: a-z, A-Z).
-      - Cyrillic (Russian and Kazakh: а-я, А-Я, ё, Ё).
-      - Extended Kazakh Cyrillic characters: ә, ғ, қ, ң, ө, ұ, ү, һ, і (and
-        their uppercase forms Ә, Ғ, Қ, Ң, Ө, Ұ, Ү, Һ, І).
-  - Digits (0-9), punctuation, symbols, and whitespace are delimiters and not
-    part of any word.
-  - Alternative rejected: Treating digits as parts of words (e.g., "covid19").
-    Under this spec, "covid19" becomes the word "covid".
+| Input        | Expected Output                                | Plausible Alternative Output                      |
+| :------------- | :------------------------------------------- | :------------------------------------------------ |
+| `"Сәлем, әлем! Hello 2026 covid19 café."` | `[('caf', 1), ('hello', 1), ('covid', 1), ('сәлем', 1), ('әлем', 1)]` | `[('2026', 1), ('café', 1), ('covid19', 1), ...]` |
+| `"ёж"` in NFD (`"е\u0308ж"`)              | `[('ёж', 1)]`                                                         | Without NFC: `[('е', 1), ('ж', 1)]`               |
 
-| Input                             |  Expected Output                          | Plausible Alternative Output  |
-| :-------------------------- | :---------------------------------------------- | :---------------------- |
-| `"Сәлем, әлем! Привет мир. Hello world 2026."` | `[('hello', 1), ('world', 1), ('мир', 1), ('привет', 1), ('сәлем', 1), ('әлем', 1)]` | Includes numbers: `[('2026', 1), ...]` or breaks Kazakh `ә`: `[('лем', 1), ...]` |
+Decision 2: Delimiters and Tokenization Precedence
 
-Decision 2: Punctuation, Hyphens, and Apostrophes
+  - Rule: Tokenization occurs before lowercasing. All non-allowed code points
+    (including hyphens -, underscores _, and apostrophes ', ’) act strictly as
+    token delimiters.
+  - Compound words (e.g., Russian "кое-как", English "step-by-step") and
+    contractions (e.g., "don't") are split into distinct tokens.
+  - Special symbols that lowercase into allowed ASCII letters (e.g., Kelvin
+    symbol K U+212A) are treated as delimiters during tokenization and are not
+    converted into letters.
 
-  - Rule: Hyphens (-), apostrophes (', ’), and underscores (_) are treated
-    strictly as delimiters, separating words.
-  - Words separated by hyphens (e.g., compound words) or apostrophes (e.g.,
-    English contractions) are split into distinct tokens.
-  - Alternative rejected: Preserving internal hyphens or apostrophes (e.g.,
-    keeping "don't" intact or "state-of-the-art" as one token).
+| Input                   | Expected Output                                      | Plausible Alternative Output          |
+| :---------------------- | :---------------------------------------------------- | :------------------------------------ |
+| `"кое-как don't step-by-step"`    | `[('step', 2), ('by', 1), ('don', 1), ('t', 1), ('как', 1), ('кое', 1)]` | `[("кое-как", 1), ("don't", 1), ...]` |
+| `"Kelvin"` (`\u212A` + `"elvin"`) | `[('elvin', 1)]`                                                         | Lowercase first: `[('kelvin', 1)]`    |
 
-| Input                  | Expected Output                                  | Plausible Alternative Output          |
-| :--------------------- | :----------------------------------------------- | :------------------------------------ |
-| `"don't step-by-step"` | `[('step', 2), ('by', 1), ('don', 1), ('t', 1)]` | `[("don't", 1), ("step-by-step", 1)]` |
+Decision 3: Lowercasing Order and Equivalence
 
-Decision 3: Case Folding and Normalization
+  - Rule: Lowercasing is applied to each token after tokenization using
+    .lower(). Within the closed set of allowed code points defined in
+    Decision 1, .lower() and .casefold() produce identical results.
+  - Rejected alternative: Case-sensitive word matching.
 
-  - Rule: Case folding is applied using Python’s .casefold() (or .lower())
-    before counting. All output words are lowercase.
-  - Kazakh/Russian Cyrillic uppercase letters map strictly to their lowercase
-    equivalents (e.g., "І" -> "і", "Қ" -> "қ").
-  - Alternative rejected: Case-sensitive counting where "The" and "the" are
-    treated as two distinct words.
+| Input                        | Expected Output              | Plausible Alternative Output                   |
+| :--------------------------- | :--------------------------- | :--------------------------------------------- |
+| `"Алма алма АЛМА Ізде іЗдЕ"` | `[('алма', 3), ('ізде', 2)]` | `[('алма', 1), ('Алма', 1), ('АЛМА', 1), ...]` |
 
-| Input                        | Expected Output              | Plausible Alternative Output                                   |
-| :--------------------------- | :--------------------------- | :-------------------------------------------------- |
-| `"Алма алма АЛМА Ізде іЗдЕ"` | `[('алма', 3), ('ізде', 2)]` | Case-sensitive: `[('алма', 1), ('Алма', 1), ('АЛМА', 1), ...]` |
+Decision 4: Deterministic Unicode Code-Point Tie-Breaking
 
-Decision 4: Deterministic Tie-Breaking
+  - Rule: Ties in frequency are broken strictly by ascending Unicode code point
+    order (ord(c)).
+  - Important distinction from locale collation: This is not linguistic
+    alphabetical collation:
+      - All Basic Latin letters (U+0061–U+007A) sort before Cyrillic letters
+        (U+0400+).
+      - Russian ё (U+0451) sorts after я (U+044F).
+      - Kazakh specific Cyrillic letters (e.g., ә U+04D9) sort after Russian
+        Cyrillic я (U+044F), despite sorting immediately after а in the official
+        Kazakh alphabet.
+  - Rejected alternative: Locale-aware alphabetical sorting (e.g., using
+    locale.strcoll).
 
-  - Rule: When two or more words have identical frequencies, ties are broken
-    lexicographically in ascending order by Unicode code point.
-  - Alternative rejected: Preserving first-appearance order or non-deterministic
-    dictionary order.
+| Input              | Expected Output                           | Plausible Alternative Output                            |
+| :----------------- | :---------------------------------------- | :------------------------------------------------------ |
+| `"яблоко ёж әлем"` | `[('яблоко', 1), ('ёж', 1), ('әлем', 1)]` | Alphabetical: `[('ёж', 1), ('әлем', 1), ('яблоко', 1)]` |
 
-| Input                             | Expected Output                       | Plausible Alternative Output |
-| :--------------------------- | :----------------------------------------- | :------------------------------ |
-| `"banana cherry apple date"` | `[('apple', 1), ('banana', 1), ('cherry', 1), ('date', 1)]` | First-appearance order: `[('banana', 1), ('cherry', 1), ('apple', 1), ('date', 1)]` |
+Decision 5: No Stop-Word Filtering
 
-Decision 5: Stop Words
+  - Rule: All valid words are counted equally. No stop words are excluded in
+    English, Russian, or Kazakh.
+  - Tie-breaking applies code-point order: 'және' (ж = U+0436) strictly precedes
+    'мысық' (м = U+043C).
 
-  - Rule: No stop-word filtering is applied. All valid words, regardless of
-    frequency or grammatical role (e.g., English "the", Russian "и", Kazakh
-    "және"), are counted equally.
-  - Alternative rejected: Stripping common grammatical particles.
+| Input                     | Expected Output          | Plausible Alternative Output                             |
+| :------------------- | :----------------------------- | :-------------------------------------------------- |
+| `"the cat and the dog және мысық"` | `[('the', 2), ('and', 1), ('cat', 1), ('dog', 1), ('және', 1), ('мысық', 1)]` | `[('the', 2), ..., ('мысық', 1), ('және', 1)]` (wrong tie-break) |
 
-| Input                     | Expected Output               | Plausible Alternative Output                           |
-| :------------ | :------------------------------------ | :----------------------------------- |
-| `"the cat and the dog және мысық"` | `[('the', 2), ('and', 1), ('cat', 1), ('dog', 1), ('мысық', 1), ('және', 1)]` | Filtering stop words: `[('cat', 1), ('dog', 1), ('мысық', 1)]` |
+Decision 6: Exact 10-Word Cutoff and Cutoff Ties
 
-Decision 6: Fewer than 10 Unique Words and Empty Input
+  - Rule: The result contains at most 10 elements.
+  - If 11 or more unique words exist, only the top 10 positions are included.
+    Words tied for the 10th position that sort beyond position 10 in code-point
+    order are excluded (no expansion beyond 10 items).
+  - If fewer than 10 unique words exist, all unique words are returned without
+    padding.
+  - If no valid words exist (or text is empty), returns an empty list [].
 
-  - Rule: If the text contains fewer than 10 unique words, the function returns
-    all unique words found. It does not pad the list with None or raise an
-    exception.
-  - If text contains no alphabetic words (or is empty), the function returns an
-    empty list [].
-  - Alternative rejected: Raising ValueError on empty input or padding the list
-    to length 10.
+| Input                          | Expected Output                      | Plausible Alternative Output                     |
+| :------------------------- | :--------------------------------------- | :----------------------------------------------- |
+| `"a b c d e f g h i j k"` (11 words, count 1 each) | `[('a', 1), ('b', 1), ('c', 1), ('d', 1), ('e', 1), ('f', 1), ('g', 1), ('h', 1), ('i', 1), ('j', 1)]` | Returning all 11 tied words: includes `('k', 1)` |
+| `""` or `"1234 !!!"`                               | `[]`                                                                                                   | Raises exception                                 |
 
-| Input                     | Expected Output            | Plausible Alternative Output                       |
-| :------------------------ | :------------------------- | :------------------------------------------------- |
-| `"one one two"`           | `[('one', 2), ('two', 1)]` | Padded list: `[('one', 2), ('two', 1), None, ...]` |
-| `""` or `"1234 !!! ??? "` | `[]`                       | Raises `ValueError("No words found")`              |
+Decision 7: Input Type Validation
 
-Decision 7: Input Validation
+  - Rule: The function requires isinstance(text, str). Instances of str and its
+    subclasses are accepted. If text is not an instance of str (or a subclass),
+    the function raises a TypeError with the exact message "Input must be a
+    string".
 
-  - Rule: If text is not an instance of str, the function raises a
-    TypeError("Input must be a string").
+| Input      | Expected Output                              | Plausible Alternative Output |
+| :--------- | :------------------------------------------- | :--------------------------- |
+| `None`     | Raises `TypeError("Input must be a string")` | Returns `[]`                 |
+| `123`      | Raises `TypeError("Input must be a string")` | Converts to `"123"`          |
+| `b"bytes"` | Raises `TypeError("Input must be a string")` | Decodes bytes                |
 
 
