@@ -1,138 +1,131 @@
 # LLM Review of `spec.md`
 
-Prompting Claude Sonnet 5 (via Claude Code, run as a fresh subagent with no
-memory of drafting the spec, so this is a genuine independent review rather
-than the same context re-approving its own work), with:
+This supersedes the previous `llm-review.md`. The instructor's own review
+(Claude Opus 5.5, medium effort) on this PR required changes to the prior
+spec — a wrong example in decision 5, a real contradiction between the word
+definition's prose (`isalpha()`) and its regex (which also matched
+non-decimal numerics like `км²`), and several Cyrillic edge cases
+(typographic apostrophe/hyphen variants, combining stress marks) that split
+one visible word into two. All of that is fixed in the current `spec.md`,
+using the corrected tokenization pipeline from that review, which I
+re-verified independently (every table row, old and new, checked against a
+fresh run of the implementation — see the commit for details).
+
+What follows is the next review on top of that fix: another fresh Claude
+Sonnet 5 subagent, no memory of writing or fixing the spec, so this is a
+genuine independent pass rather than the same context re-approving its own
+corrections.
+
+Prompting Claude Sonnet 5 (via Claude Code, fresh subagent) with:
 
 > You are reviewing a specification for a university assignment (CSDA 5101,
-> Advanced Software Paradigms). Read the file at this path: [spec.md].
-> Context: the original, under-specified problem statement this spec is
-> tightening is: "A news site shows a 'Trending words' box beside each
-> article. Write a Python function that finds the 10 most common words in
-> an article's text, along with how many times each one appears. Articles
-> may be in English, Russian, or Kazakh." The goal of the spec is to leave
-> only ONE plausible implementation — i.e., resolve every ambiguity,
-> omission, implicit assumption, interface-contract question, and boundary
-> case the one-paragraph original leaves open. Review spec.md against that
-> original prompt to check whether it succeeds at that goal. Specifically
-> check: 1) Multilingual correctness (English/Russian/Kazakh) — is the word
-> definition actually sound for all three scripts? 2) Tie-breaking and
-> ranking — fully deterministic? 3) Edge cases — empty input, fewer than 10
-> words, non-string input. 4) Anything in the spec that is still ambiguous,
-> internally inconsistent, or where a reasonable second implementer could
-> produce a different result than intended. 5) Anything missing that the
-> original prompt implies but the spec never addresses. Do not read or run
-> top_words.py or check_tables.py in that directory — review spec.md on its
-> own merits, as a human reviewer would without seeing any implementation.
-> Give a numbered list of findings. For each finding, say whether it's a
-> real gap or just a stylistic nitpick. Be genuinely critical.
+> Advanced Software Paradigms). Read the file at this path: [spec.md]. This
+> is a REVISED version of a spec, after the instructor gave a detailed
+> critical review of an earlier draft (not shown to you — you have no
+> memory of the earlier draft and should review this version purely on its
+> own merits). Context: the original, under-specified problem statement
+> this spec is tightening is: "A news site shows a 'Trending words' box
+> beside each article. Write a Python function that finds the 10 most
+> common words in an article's text, along with how many times each one
+> appears. Articles may be in English, Russian, or Kazakh." The goal of the
+> spec is to leave only ONE plausible implementation. Review spec.md
+> against that original prompt. Specifically check: 1) Multilingual
+> correctness (English/Russian/Kazakh, including Cyrillic edge cases like
+> combining marks, typographic punctuation variants, and non-decimal
+> Unicode numerics). 2) Tie-breaking and ranking — fully deterministic and
+> internally consistent (does the prose match the stated sort order)? 3)
+> Edge cases — empty input, fewer than 10 words, non-string input. 4)
+> Internal consistency — does every example table row's "expected output"
+> actually follow from the rules and code given earlier in the document?
+> Check specifically for ordering correctness in multi-word tied-count
+> examples (don't just trust alphabetization by eye — Cyrillic code-point
+> order is easy to get wrong by hand). 5) Anything still ambiguous, or
+> anything missing that the original prompt implies but the spec never
+> addresses. Do not read or run top_words.py, check_tables.py, or
+> verify_spec_tables.py in that directory — review spec.md on its own
+> merits. Give a numbered list of findings, real gap or nitpick. Be
+> genuinely critical.
 
 produced the following output; strikethrough indicates LLM output that I
 deemed incorrect or irrelevant.
 
 ---
 
-Reviewed spec.md on its own merits. Overall it is unusually careful — the
-word-definition regex, case-folding, stop-word, and tie-break decisions are
-all cross-checked against their own example tables, and every example I
-hand-verified ... computes out exactly as the spec claims. Tie-breaking
-(count desc, then casefolded word ascending by code point) gives a genuine
-total order with no residual ties possible ... so ranking is fully
-deterministic. Edge cases (empty string, digit/punctuation-only, <10
-distinct words, non-str input) are all explicitly and consistently covered.
+I hand-traced the `_words()` pipeline and `str.casefold()`/sort rules
+against every example row in all 7 decisions ... Every expected output is
+arithmetically correct and internally consistent with the stated rules —
+this is a notably careful spec. Findings:
 
-Findings:
+1. **Real, minor — Cf-stripping/ZWSP inconsistency.** Step 2 deletes Mn/Cf
+   characters outright rather than replacing them with a space. The stated
+   rationale is "these ... still shouldn't silently split one visible word
+   into two." But zero-width space (U+200B, category Cf) is itself a word
+   *separator* in its one real-world use; deleting it instead of blanking
+   it does the opposite of the stated goal — it silently *merges* two
+   visible, separate words into one.
 
-1. **Real gap — no decision on inflectional normalization.** Russian and
-   Kazakh are heavily inflected; "дом/дома/дому/домом" ... are, by this
-   spec, four distinct words. The spec explicitly argues against stop-word
-   removal ... but never applies the same reasoning to
-   lemmatization/stemming, even though it's an equally plausible, equally
-   consequential reading of "most common words" for these two languages
-   specifically — and the original prompt calls out multilingual support
-   as a core requirement. ... Should have been decision #7.
+   **Applied.** Verified empirically (`top_words("foo​bar")` gave one
+   word, `foobar`, before the fix). Reordered the pipeline to fold
+   U+200B to a space in the same step as the other typographic
+   substitutions, before the Mn/Cf-drop step runs, so it now acts as a
+   separator instead of vanishing.
 
-   **Applied.** Added as decision 4 ("Inflectional forms are not
-   normalized"), with its own disambiguation table, verified against the
-   implementation.
+2. **Real, moderate — overgeneralized claim in decision 5.** "Code-point
+   order puts ё (U+0451) after every other Cyrillic letter" is false within
+   this spec's own trilingual domain: Kazakh letters ә(04D9), ғ(0493),
+   қ(049B), ң(04A3), ө(04E9), ұ(04B1), һ(04BB) all have *higher* code
+   points than ё, so ё sorts *before* them, not after "every" Cyrillic
+   letter.
 
-2. **Nitpick (technical imprecision).** The spec asserts `[^\W\d_]` is
-   "exactly a letter" in Python's Unicode regex. Not quite: Python's `\w`
-   is alnum-or-underscore, so `[^\W\d_]` also matches non-decimal numeric
-   chars (Roman numerals, vulgar fractions, superscripts — Unicode
-   categories Nl/No) that aren't letters per `str.isalpha()`. Unlikely to
-   matter for real news text in these three scripts, but the "exactly"
-   claim is false as stated.
+   **Applied.** Verified empirically (`ord('ё')` is 0x451; all nine
+   Kazakh-specific letters are 0x456 and above). Reworded to state
+   precisely where `ё` falls: after plain Russian `а`–`я`, but before the
+   nine Kazakh-specific letters.
 
-   **Applied.** Verified empirically (`'Ⅳ'.isalpha()` is `False` but it
-   matches `[^\W\d_]`); reworded the spec to state the distinction
-   precisely instead of claiming equivalence.
+3. ~~**Nitpick — structural inconsistency.** The "Kazakh is Cyrillic"
+   resolution lives in the Interface section, not as its own numbered
+   Decision with an input/output/alternate-reading table like every other
+   resolved ambiguity.~~
 
-3. **Minor real gap.** NFC normalization is motivated as fixing
-   precomposed-vs-decomposed Cyrillic, which it does for the Kazakh-specific
-   letters .... But if input ever contains a base letter plus a combining
-   mark with no NFC precomposed form, that mark isn't itself alnum and
-   would act as an invisible word-splitting delimiter — a residual case the
-   spec's own reasoning about normalization doesn't quite close off.
-   Narrow, but real.
+   **Rejected.** This is a scoping assumption stated up front (like "Python
+   3" or the function's name), not a point where two careful readers of the
+   *original prompt* would disagree the way, say, case-folding or
+   tie-breaking invite disagreement. Promoting it to a full decision would
+   add a table and more prose for a single uncontested sentence, working
+   against the instructor's own note that this spec is already too long for
+   one function.
 
-   **Applied.** Verified empirically (Cyrillic а + combining macron has no
-   NFC precomposed form and does split into two tokens). Added as an
-   explicit, accepted Limitation rather than extending the tokenizer,
-   since combining diacritics don't occur in ordinary news text in these
-   three languages.
+4. **Nitpick — imprecise wording.** Decision 5's sentence "the first 10 of
+   the tied words ... are kept" is only literally true when the tie spans
+   the whole top-10 band; in a mixed case it should say "the first N
+   remaining slots."
 
-4. **Nitpick (presentation).** Section 1's example table already shows
-   casefolded, lowercase output ... before decision #2 (case folding) is
-   introduced — a reader going top-to-bottom hits output casing that isn't
-   yet justified. The document is internally consistent once read in full,
-   but the ordering invites confusion.
+   **Applied.** Reworded to describe the actual algorithm (sort the full
+   list by count then code point; take the top 10 of that one sorted list),
+   which is correct in both the all-tied and partially-tied cases, instead
+   of a description that only covered one of them.
 
-   **Applied.** Added a one-sentence forward reference in decision 1 rather
-   than reordering the whole document.
+5. **Nitpick — asymmetric example coverage.** Doubled hyphen is tested
+   ("well--known") but doubled/leading/trailing apostrophe is not.
 
-5. **Nitpick.** No explicit decision on minimum word length — single-letter
-   tokens ("и", "в", "I", "a") are counted as words purely as a side effect
-   of the general letter-run rule, never spotlighted as a choice ... despite
-   being just as plausible a point of disagreement.
+   **Applied**, minimally: added a one-clause note on the existing
+   `"well--known"` row rather than a new row, to avoid adding another full
+   table entry for a case the regex already handles symmetrically (verified
+   with `top_words("don''known")` → `don: 1, known: 1`, same shape as the
+   hyphen case).
 
-   **Applied.** Added one clarifying sentence to decision 1; didn't give it
-   a full decision of its own, since — unlike stop words — there's no
-   plausible alternative reading to weigh against, just an implication of
-   the general rule worth stating outright.
-
-6. **Nitpick.** Section 1's example cells mix prose ... with the "word:
-   count" format used everywhere else, slightly obscuring whether listed
-   word order there also reflects the tie-break rule (it does, verified).
-
-   **Applied.** Reformatted the `covid19` row to the same `word: count`
-   style as every other row.
-
-7. ~~**Very minor omission.** No statement of what "text" assumes about
-   upstream input (plain text vs. HTML-bearing extraction) — likely out of
-   scope given the original prompt doesn't raise it either, but it's the
-   kind of "downstream producer/implicit context" question the course's own
-   taxonomy flags.~~
-
-   **Rejected.** The interface section already defines `text` as "the
-   article's full text" — i.e. already-extracted plain text, the same
-   framing the original one-paragraph prompt uses. HTML extraction is a
-   different function's problem entirely; specifying it here would be
-   solving a problem the assignment never poses. The reviewer's own hedge
-   ("likely out of scope") agrees.
-
-Verdict: strong spec, closer to achieving "one plausible implementation"
-than most student drafts would be, but item 1 was a genuine, non-cosmetic
-hole given the course's explicit multilingual-correctness criterion.
+No missing boundary cases (empty/whitespace/digits-only input, <10 distinct
+words, non-str/bytes/None input) — all fully and correctly specified.
 
 ---
 
-After applying findings 1–6, I re-ran every example in `spec.md`'s tables
-against a fresh implementation written from the spec alone (not from memory
-of writing the spec) — all pass, including the three ordering mistakes I'd
-made by hand in the original tables (`"Hello world!..."`, `"don't stop
-state-of-the-art"`, `"well--known"`) and a fourth I caught the same way
-while adding the new inflectional-forms example (`"дом дома дому домом"`).
-Cyrillic alphabetical ordering by Unicode code point is not something to
-compute by hand — every ranked example in this spec is now verified by
-running code, not by eye.
+After applying findings 1, 2, 4, and 5, I re-ran every example in every
+table against a fresh implementation two different ways: a hand-maintained
+test file, and a script that scrapes the literal input/output text directly
+out of `spec.md`'s own tables and checks it against `top_words()` — so the
+committed document is checked against real code, not just my memory of
+writing it. Both pass on every row. (One input — the decomposed-`й` example
+— is written as a Python expression rather than a literal pasted string,
+because decomposed Unicode does not reliably survive being pasted as plain
+text through this document's own editing pipeline; I confirmed this the
+hard way, twice, before switching to that representation.)
