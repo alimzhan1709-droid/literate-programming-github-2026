@@ -3,53 +3,46 @@
 Prompting Claude Opus 5.5, extra high effort, with `Review spec.md` (Claude
 Code, `claude -p "Review spec.md" --model claude-opus-5-5 --effort xhigh`, with
 read-only file tools) produced the following output; strikethrough indicates
-LLM output that I deemed incorrect or irrelevant, and each **Note** says what I
-did. This was the seventh review round; the earlier rounds found no wrong
-examples either, only gaps that I fixed.
+LLM output that I deemed incorrect or irrelevant, and each **Note** says why.
+This is the last review, run on the `spec.md` in this commit.
 
 The review could not run code, so I ran every table row against a reference
-implementation of section 2 on CPython 3.13; all 36 rows pass.
+implementation of section 2 on CPython 3.13; all 37 rows pass.
 
-> I found no errors in `spec.md`. All 35 example rows match the Section 2 procedure. The token grammar and the folding rule leave no room for two correct implementations to give different results. I could only find wording and test-coverage issues.
+> I found no errors in `spec.md`. I couldn't run Python here because the command needed approval that isn't available in this session. Instead I worked through all 37 table rows by hand against section 2, including the three rows this diff adds or changes, and every row gives the expected output. Please re-run your reference implementation anyway, since the rows have changed since your last run.
 >
-> I couldn't run Python in this session because the commands were blocked, so I checked each row by hand against steps 1–5. I also:
-> - Searched the file for words that mix Latin and Cyrillic letters (such as a Latin `A` inside `МОСКВА`) and for hidden marks or invisible characters. There are none, and the Kazakh `і` on line 95 really is U+0456.
-> - Checked that the Greek row (line 89) actually tests "fold after NFD". With NFD first the word is `α\u0315ι`; folding without NFD gives `αι\u0315`, so the two methods give different results.
-> - Confirmed that a Python `re` pattern gives the same tokens as "longest match", because letters/digits, marks and joiners never overlap.
-> - Checked from memory, not against a file, that the list of extra deleted characters in step 1 matches Unicode 16.0, and that UAX #29 does break words at U+200B.
+> ## What I checked
+>
+> - **New row 63, `"\uff15G \u0663"`:** `５` is `isdecimal()`, so the token is `５G`. NFD doesn't touch the fullwidth digit, which agrees with row 92 ("no NFKC"), so the word is `\uff15g`. `٣` alone has no letter, so it's dropped. Code that only accepts `0`–`9` would give `[("g", 1)]`, so the row catches that mistake.
+> - **Changed row 64, `"x\u00b2 \u00bdx XXI"`:** The old input had `½` standing alone, where it was dropped whether or not it counted as a digit, so the row didn't test it. Now `½x` would become one word under `isnumeric()`/`isalnum()`, and `x²` under `isdigit()`. The row now catches all three wrong choices.
+> - **Changed row 71, ZWJ added:** U+200D is `Cf`, so it's deleted and `newspaper` gets 3. This also matches UAX #29, which ignores ZWJ (rule WB4) but breaks at ZWSP.
+> - **Line 35, "left after step 1":** This fixes a real contradiction. Before, deleted `Cf` characters were also "every other character", so they counted as separators.
+> - **Step 1 list:** The extra deleted characters match the Default_Ignorable_Code_Point characters outside `Cf` in Unicode 16.0 (checked from memory).
+> - **Literal characters:** Every literal `’ ‐ ‑ ‘ ʼ − — ² ½ ﬁ İ` is the code point its text says it is. No word mixes Latin and Cyrillic letters. There are no literal invisible characters or combining marks. The single-letter `е`, `а` (lines 96, 112) are Cyrillic, and `і` (line 97) is U+0456.
 >
 > ## Should fix
 >
-> 1. **No row has a joiner right after a mark.** The rules make `"кто\u0301-то"` one word. But the note on row 67 only says "a joiner needs a letter or digit *after* it". Someone who also requires a letter or digit *before* the joiner would split this into `кто́` and `то`, and every current row would still pass. Add a row: `"кто\u0301-то"` → `[("кто\u0301-то", 1)]`, with the note "a mark may come before a joiner".
+> ~~1. **`llm-review.md` no longer matches the spec.** This diff applies the reviewer's items 4, 5 and 6, but the review file still says:~~
+>    - ~~items 4 and 5 were "Left as is";~~
+>    - ~~item 6 is struck through, with a note rejecting it;~~
+>    - ~~"all 36 rows pass", but there are now 37 rows, and rows 64 and 71 have changed.~~
+>
+>    ~~Update those notes to "Fixed" and update the row count after you re-run. If this review is going to replace the old one in `llm-review.md`, that also takes care of it.~~
 
-**Note:** Fixed; I added this row.
-
-> 2. **`spec.md:21`, "The box shows each word in its case-folded form".** Section 1 is a binding section, but plain `token.casefold()` is not the same as step 4. It keeps `’`, `‐` and `‑`, and it skips NFD/NFC. Read literally, it would show `don’t`, which goes against row 65. Change it to "…in the form given by section 2, step 4".
-
-**Note:** Fixed; section 1 now refers to step 4.
+**Note:** This is about the previous `llm-review.md`, not the spec. This review replaces it, as the item itself suggests, and I re-ran all 37 rows.
 
 > ## Minor
 >
-> ~~3. **`spec.md:19`, `str` subclasses.** `isinstance` accepts them, but if a subclass overrides `__iter__` or `casefold`, the result depends on how the code is written. Say that a subclass is read as its plain characters and its overridden methods are not called, or say its behavior is unspecified.~~
+> 2. **`spec.md:23–24`: the Latin-script Kazakh wording is still a little narrow.** Words that only ever contain a lowercase `i` are affected too. For example, `"İä iä"` gives two entries, `i̇ä` and `iä`, and the word `iä` contains none of `I`, `ı` or `İ`. A more exact version: "words with a dotted or dotless `i`, in either case, may be miscounted".
 
-**Note:** Article text arrives as a plain `str`; subclasses that override string methods are not a realistic input for this function.
+**Note:** Correct, but it only refines the wording of a case the spec already declares unsupported; the behavior is fully defined by section 2 and by the `İstanbul` row.
 
-> 4. **`spec.md:23`, "Latin-script Kazakh is accepted but miscounted".** This is too broad: only words containing `I`, `ı` or `İ` are affected. Suggest: "…but words with `I`, `ı` or `İ` may be miscounted".
->
-> 5. **No test checks that "digit" means any `isdecimal()` digit, not just ASCII 0–9.** Add `"\uff15G \u0663"` → `[("\uff15g", 1)]`. Code that only accepts `0`–`9` would give `[("g", 1)]`.
+> ~~3. **`spec.md:63`: `\u0663` adds nothing to the test.** Every plausible implementation drops it. That includes ASCII-only, `isnumeric` and `isalnum` versions, and anything that got it wrong would already fail row 61. Keep it only if you want to show a digit from a non-Latin script; it doesn't hurt.~~
 
-**Note:** Items 4 and 5 are correct but minor; the rule in section 2 already says `isdecimal()`, and section 1 already says Latin-script Kazakh is not supported. Left as is.
+**Note:** It is there on purpose, to show a digit from a non-Latin script, which the review says is fine.
 
-> ~~6. **`spec.md:12`, "`\u` escapes show invisible or look-alike characters".** `\u00b2`, `\u00bd` and `\u1fb3` are neither. Adding "…or characters whose exact code point matters" covers them.~~
+> ~~4. **`spec.md:41`: list order.** U+FFA0 comes before U+FE00–U+FE0F. Every other entry is in code-point order, so move U+FFA0 after them.~~
 
-**Note:** The sentence explains why escapes are used; it does not forbid using them elsewhere.
+**Note:** Cosmetic; the order of the list has no effect.
 
-> ## Design risk to confirm
->
-> ~~In Kazakh web text, people often type Latin `i` instead of `і` because the two look the same. Row 101 deliberately counts them separately. On real articles, that can turn one common word into two entries, each with part of the count. No change is needed if this is intended.~~
-
-**Note:** Intended, as the reviewer says; merging look-alike letters is the kind of guess section 5 rules out.
-
-> Nothing needs cutting; the spec is already short and doesn't repeat itself.
->
-> ~~The other folders have an `llm-review.md`; I can save this review there in the same format if you want.~~
+> Nothing else needs changing. The procedure still leaves no room for two correct implementations to disagree, and the new rows fill the gaps they were meant to.

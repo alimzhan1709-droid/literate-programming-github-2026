@@ -10,7 +10,7 @@ Author: b.yunussov
 Sections 1 and 2 are normative; the prose and tables after them add no rules
 and only illustrate them. Input and output cells are Python literals (or
 `TypeError` for a raised exception); `\u` escapes show invisible or look-alike
-characters.
+characters, or characters whose exact code point matters.
 
 ## 1. Interface
 
@@ -20,8 +20,8 @@ characters.
 - Returns a `list` of at most 10 `(word, count)` tuples of `(str, int)`, or
   `[]` if the text has no words. The box shows each word as section 2, step 4
   produces it; recovering the original spelling is out of scope.
-- "Kazakh" means Cyrillic script. Latin-script Kazakh is accepted but
-  miscounted, since Turkic case rules (`I`/`ı`, `İ`/`i`) are not applied.
+- "Kazakh" means Cyrillic script. In Latin-script Kazakh, words with `I`,
+  `ı` or `İ` may be miscounted, since Turkic case rules are not applied.
 - Not handled specially (section 2 still defines the result): language
   detection, transliteration, HTML, and scripts without spaces between words.
 - Character properties come from the interpreter's Unicode database
@@ -32,7 +32,7 @@ characters.
 A **letter** has `c.isalpha()`, a **digit** has `c.isdecimal()`, and a
 **mark** has a `unicodedata.category(c)` starting with `M`. A **joiner** is
 `'` (U+0027), `’` (U+2019), `-` (U+002D), `‐` (U+2010), or `‑` (U+2011).
-Every other character is a separator.
+Every other character left after step 1 is a separator.
 
 1. Delete every character of category `Cf` (soft hyphen, word joiner, BOM, ...)
    except U+200B zero-width space, which is a separator (UAX #29 also breaks
@@ -60,14 +60,15 @@ Every other character is a separator.
 | `"«Астана» — бас қала."` | `[("астана", 1), ("бас", 1), ("қала", 1)]` | any script, any punctuation |
 | `"2024 — 15% 3.14"` | `[]` | numbers alone are not words |
 | `"COVID-19 5G 1990-х snake_case"` | `[("1990-х", 1), ("5g", 1), ("case", 1), ("covid-19", 1), ("snake", 1)]` | digits join letters; `_` separates |
-| `"x\u00b2 \u00bd XXI"` | `[("x", 1), ("xxi", 1)]` | `²`, `½` are not digits |
+| `"\uff15G \u0663"` | `[("\uff15g", 1)]` | any `isdecimal()` digit, not only `0`–`9` |
+| `"x\u00b2 \u00bdx XXI"` | `[("x", 2), ("xxi", 1)]` | `²`, `½` are not digits |
 | `"cat category cats"` | `[("cat", 1), ("category", 1), ("cats", 1)]` | whole words only |
 | `"don't don\u2019t 'cat' dogs'"` | `[("don't", 2), ("cat", 1), ("dogs", 1)]` | `'`, `’` join only inside a word |
 | `"кто\u0301-то"` | `[("кто\u0301-то", 1)]` | a mark may come before a joiner |
 | `"Ростов-на-Дону Нұр-Сұлтан Нұр\u2010Сұлтан Нұр\u2011Сұлтан"` | `[("нұр-сұлтан", 3), ("ростов-на-дону", 1)]` | hyphens join inside a word; U+2010, U+2011 become `-` |
 | `"a--b a-\u0301b well-\nknown x\u2212y e\u2014mail"` | `[("a", 2), ("b", 2), ("e", 1), ("known", 1), ("mail", 1), ("well", 1), ("x", 1), ("y", 1)]` | a joiner needs a letter or digit after it; `−`, `—` separate |
 | `"don\u2018t don\u02bct"` | `[("don", 1), ("don\u02bct", 1), ("t", 1)]` | `‘` separates; `ʼ` is a letter, so `donʼt` is not `don't` |
-| `"news\u00adpaper news\u2060paper cat\u200bdog"` | `[("newspaper", 2), ("cat", 1), ("dog", 1)]` | `Cf` is deleted, except U+200B separates |
+| `"news\u00adpaper news\u2060paper news\u200dpaper cat\u200bdog"` | `[("newspaper", 3), ("cat", 1), ("dog", 1)]` | `Cf` is deleted, except U+200B separates |
 | `"cat cat\ufe0f cat\u034f \u3164"` | `[("cat", 3)]` | other invisible characters are deleted |
 | `"в\u00a0Астане 5\u202f000 км"` | `[("астане", 1), ("в", 1), ("км", 1)]` | no-break spaces separate |
 | `"т.\u0435. и т.д. U.S."` | `[("т", 2), ("s", 1), ("u", 1), ("д", 1), ("\u0435", 1), ("и", 1)]` | periods split abbreviations |
