@@ -1,178 +1,52 @@
 LLM Review Report
 =================
 
-<strong>LLM Used:</strong> Google AI for building spec / Claude for review
-<strong>Prompt:</strong> "Review the spec.md for the Top Words Problem and
-verify if it successfully handles multi-language constraints (English, Russian,
-Kazakh), text normalization, and edge cases like sorting ties."
-![alt text](image-1.png)
+<strong>LLM Used:</strong> Google AI for building spec / Claude free version for review
+<strong>Prompt:</strong> "Review this spec"
 
 Output From LLM
 ===============
 
-Review of the Top Words spec
-============================
+Overall the spec is tight. I traced all 37 rows of your table by hand against the five steps and found no contradictions. The problems are a few corrupted or ambiguous spots and several decisions that have no example yet.
 
-<strong>Verdict:</strong> The core pipeline is sound and the sort sequence is
-well chosen, but the spec is not yet "one plausible reading." It has one broken
-passage, several undefined terms, and a few decisions with no example row.
+## Fix these
 
-What works
-----------
+~~1. **The apostrophe list in step 1 is corrupted.** The Markdown escaping turned two entries into `` \`\` , ´\` ``. I assume you meant the backtick (U+0060) and acute accent (U+00B4), but a reader can't be sure. Spell the set out as code points, and add an example, because another reading gives `can t` and therefore `can: 1`.~~
+~~2. **The stop word `'ee'` looks like two Latin e's.** If so, it filters the English token "ee" and never matches `её`, which becomes Cyrillic `ее` after your `ё→е` step. Check with `[hex(ord(c)) for c in 'ee']`. If it should be Cyrillic, add the example `её` → `""`.~~
+~~3. **A rendered table can't show Unicode form.** `café` could be U+00E9 or `e` plus U+0301, and the results differ (`caf` vs `cafe` without NFC). Write inputs as escapes (`"caf\u00e9"`) wherever the form matters.~~
+4. **Formatting problems:**
+   - ~~The 12-word row opens with two backticks and closes with one.~~
+   - ~~"empty string" in the table reads like a literal; write `""`.~~
+   - ~~The `\&` escapes in headings are stray.~~
 
-* <strong>Sort sequence:</strong> It covers all 26 Latin letters, all 33 Russian
-  letters, and the nine Kazakh-specific letters (ә ғ қ ң ө ұ ү һ і), in standard
-  alphabet positions (ә after а, ё after е, і after ы).
-* <strong>NFC:</strong> This is the right choice, because it composes decomposed
-  `й` and `ё`.
-* <strong>Digits:</strong> Replacing digits with spaces (not deleting them) is
-  clear, and `abc123def` pins it down.
-* <strong>Hyphen/apostrophe rule:</strong> Evaluating "between two letters" is
-  enough to resolve `foo-1bar`, since a digit is not a letter.
-* <strong>Table rows:</strong> The rows from the assignment are consistent with
-  the spec as written.
+## Decisions with no example yet
 
-Blocking problems
------------------
+~~Each row gives a different output under another plausible reading.~~
 
-1. **The "Order of Operations" bullet is cut off mid-sentence** ("For example,
-   an input like"). Also, digit-first ordering never changes any result under
-   your own rules, so the bullet may be unnecessary once you remove or fix
-   it. 1. \[✅k\_muzanbekova NOTE: This is a Markdown rendering bug. The text
-   has been restored and completed under Constraints \& Requirements to
-   explicitly explain how digits break hyphens.\]
-2. <del><strong>`output.png` is not visible to me,</strong> so I couldn't verify
-   it. Behavior shouldn't depend on an image anyway.</del> \[❌k\_muzanbekova
-   NOTE: Ignored. The image is an internal visual verification artifact for the
-   professor and has no impact on the technical requirements.\]
-3. <del><strong>No examples table appears in the spec itself,</strong> only in
-   the assignment text. If spec.md has one, it didn't come through.</del>
-   \[❌k\_muzanbekova NOTE: Misunderstanded by LLM\]
-4. <strong>Contradiction:</strong> The description says it filters "English
-   stop-words," but the list covers three languages. The text also says "input
-   text document," while the interface takes a string. \[✅k\_muzanbekova NOTE:
-   Fixed. Wording typos corrected to "filters out common English, Russian, and
-   Kazakh stop-words"\]
+| Decision | Input | Expected | Other reading it rules out |
+|---|---|---|---|
+| ~~Apostrophes are normalized before the stop-word check~~ | `It’s THE end` | `end: 1` | ~~Stop-words matched on raw text gives~~ `it's: 1, end: 1` |
+| ~~Hyphenated stop-words are matched whole~~ | `to-do the-end list` | `list: 1` | ~~Splitting on hyphens gives~~ `do: 1, end: 1, list: 1` |
+| ~~Hyphenated compounds stay one token~~ | `the-cat` | `the-cat: 1` | ~~Splitting gives~~ `cat: 1` |
+| ~~Stop-words match whole tokens only~~ | `island theory` | `island: 1, theory: 1` | ~~Prefix filtering gives~~ `""` |
+| ~~Doubled apostrophes are not collapsed~~ | `rock''roll` | `rock: 1, roll: 1` | ~~Collapsing gives~~ `rock'roll: 1` |
+| ~~NFC runs before filtering~~ | `cafe\u0301` | `caf: 1` | ~~No NFC gives~~ `cafe: 1` |
+| ~~NFC for Cyrillic й~~ | `хаи\u0306` | `хай: 1` | ~~No NFC gives~~ `хаи: 1` |
+| ~~NFC runs before~~ `ё→е` | `е\u0308лка` | `елка: 1` | ~~Replacing ё first gives~~ `лка: 1` |
+| ~~NFC, not NFKC~~ | `\ufb01nal` | `nal: 1` | ~~NFKC gives~~ `final: 1` |
+| ~~`errors='ignore'`~~ | `b"hel\xfflo"` | `hello: 1` | ~~`replace` gives~~ `hel: 1, lo: 1` |
+| ~~Only exact `str` and `bytes` are accepted~~ | `bytearray(b"hello")` | `""` | ~~Decoding it gives `hello: 1`~~|
+| ~~`lower()` quirk~~ | `İstanbul` | `stanbul: 1` |~~ Documents the lossy behavior~~ |
 
-Multi-language gaps
--------------------
+## Judgment calls to confirm
 
-* <del><strong>"Letter" is never defined.</strong> I suggest a whitelist: a
-  letter is any Unicode `L*` character, and everything else (digits,
-  punctuation, symbols, emoji, whitespace, `_`) is a separator, except `-` and
-  `'` between letters. This also settles whitespace, `$`, `№`, `«»`, and Unicode
-  digits, none of which are mentioned.</del> \[❌k\_muzanbekova NOTE: Ignored.
-  The specification explicitly states that all digits and punctuation marks are
-  replaced with spaces, acting as separators. The code implementation handles
-  this robustly using the <sup>[1](#%5CW%5Cd_)</sup>\+ Unicode letter regex.\]
-* <strong>Characters outside the sort sequence are undefined.</strong> These
-  include `é`, `ü`, `ї`, `є`, `ґ`, Latin-script Kazakh letters, and also `-` and
-  `'`. Without a rule, an implementation may crash on `.index()` or silently
-  pick a position. \[✅k\_muzanbekova NOTE: Valid point. To resolve ambiguity, a
-  tie-breaking rule was added: any external characters or non-target language
-  letters are sorted at the very end of the list using their standard Unicode
-  code-points via an internal fallback value.\]
-* <del><strong>Dash variants:</strong> Only ASCII `-` counts as a hyphen. Under
-  the literal spec, `Астана–Москва` (en dash) splits into two words, as do `—`
-  and U+2011. The soft hyphen (U+00AD), common in news text, is also
-  unspecified.</del> \[❌k\_muzanbekova NOTE: Ignored. For the scope of this
-  project, focusing on the standard ASCII hyphen is sufficient. Non-ASCII dashes
-  are safely treated as standard separators.\]
-* <del><strong>Apostrophe variants:</strong> Only `’` is normalized. U+02BC `ʼ`
-  is a Unicode *letter*, so `donʼt` becomes a different word from `don't`. `‘`
-  is punctuation, so `don‘t` becomes `don`.</del> \[❌k\_muzanbekova NOTE:
-  Ignored. Standard curly apostrophe (’) normalization addresses the vast
-  majority of real-world text editing copying issues.\]
-* <del><strong>Lowercasing:</strong> `lower()` vs `casefold()` isn't stated.
-  `"İ".lower()` produces `i` plus a combining dot, which is neither a letter nor
-  a defined separator.</del> \[❌k\_muzanbekova NOTE: Ignored. Standard .lower()
-  is completely sufficient for the three target languages.\]
-* <strong>Stop-word homonyms:</strong> You accept these as a limitation, but it
-  needs a row. Kazakh `осы` ("this") deletes Russian *осы* ("wasps"), and Kazakh
-  `он` ("ten") is filtered as the Russian pronoun. \[✅k\_muzanbekova NOTE:
-  Added. This global stop-word list crossover is an accepted design choice, and
-  I included the homonyms осы and бар into the table rows to explicitly pin down
-  this behavior.\]
-* <del><strong>Stop lists are thin for real news:</strong> English lacks `be`,
-  `has`, `have`, `had`, `from`, `by`, `as`, `not`, `his`, `her`, `its`. Russian
-  lacks `это`, `они`, `вы`, `за`, `же`, `да`. Kazakh lacks `емес` and `ол`.
-  Contractions like `it's` and `don't`, and Russian compounds like `что-то`,
-  `как-то`, and `из-за`, will clutter the box, because stop-words match only
-  whole tokens.</del> \[❌k\_muzanbekova NOTE: Ignored. The stop-word dictionary
-  is strictly bound to the explicitly provided assignment list. Expanding the
-  core semantic list is outside the current scope.\]
+~~- **Hyphens vs apostrophes.** You normalize typographic apostrophes but not typographic hyphens, so `well\u2011known` (non-breaking hyphen) currently splits into `known: 1, well: 1`. Either map U+2010 and U+2011 to `-` or state that they split, and add one row for whichever you choose.~~
+~~- **Lossy non-alphabet letters.** `café` → `caf` is intentional, but it also turns `résumé` into `sum`, and chops Latin-script Kazakh (ä, ö, ş…) and Ukrainian ї/є/ґ. Either list this as an explicit non-goal or accept the ghost words.~~
+~~- **Small stop-word list.** It has `don't` and `that's` but not `can't` or `she's`, and Russian `был` but not `была`, `есть` or `когда`. Real articles will likely surface filler words in the top 10. Also, Kazakh `бар` will drop the Russian word "bar".~~
+~~- **Homoglyphs.** Latin `c` and Cyrillic `с` stay distinct tokens. Your `helloпривет` row covers mixed scripts, but not this case.~~
 
-Sorting ties
-------------
+## Already solid
 
-<del>The sequence is good, but the comparison rule is underspecified. Please
-state that it is lexicographic by index in the sequence, with a prefix sorting
-first. Please also state where `'`, `-`, and unknown letters sort. The existing
-table never distinguishes custom order from code-point order. Latin before
-Cyrillic is the same under both.</del> \[❌k\_muzanbekova NOTE: Invalid
-critique. The specification already explicitly states that any external
-characters, hyphens, apostrophes, or non-target letters are sorted at the very
-end based on their standard Unicode code-points. To make it 100% total, we only
-added a minor clarification that shorter prefix words like 'do' sort before
-'dog'.\]<br>
-
-Missing example rows
---------------------
-
-The expected outputs below assume the rules I suggest where the spec is silent.
-
-| Input                           | Expected                                                     | Decision it pins down                                         |
-| ------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------- |
-| `бала әке`                      | әке: 1, бала: 1                                              | ә sorts after а (code-point order gives the reverse)✅        |
-| `яма ёж`                        | ёж: 1, яма: 1                                                | ё after е, so before я (code-point order reverses it)         |
-| `dog do`                        | do: 1, dog: 1                                                | Prefix sorts first                                            |
-| `zebra zebra apple banana`, n=2 | zebra: 2, apple: 1                                           | Tie broken alphabetically at the cutoff✅                     |
-| `cat dog`, n=5 / n=0 / n=-1     | cat: 1, dog: 1 / "" / ""                                     | n larger than the word count; non-positive n                  |
-| `co-op coop`                    | co-op: 1, coop: 1                                            | `-` sorts before letters (my proposed rule)                   |
-| `май` + `маи` with U+0306       | май: 2                                                       | NFC composition                                               |
-| `donʼt don't`                   | one count of 2, if you map ʼ (proposed); otherwise two words | Apostrophe variants                                           |
-| `Астана–Москва`                 | астана: 1, москва: 1                                         | Non-ASCII dashes separate words                               |
-| `well--known`                   | known: 1, well: 1                                            | A hyphen next to a hyphen is not "between letters"✅          |
-| `foo-'bar`                      | bar: 1, foo: 1                                               | A hyphen next to an apostrophe is stripped                    |
-| `mother-in-law`                 | mother-in-law: 1                                             | Multiple inner hyphens; `in` inside a token is not filtered   |
-| `the-cat из-за`                 | the-cat: 1, из-за: 1                                         | Stop-words match the whole token only                         |
-| `The THE Не ОН`                 | ""                                                           | Stop-words are case-insensitive                               |
-| `осы он`                        | ""                                                           | Documents the homonym limitation                              |
-| `cat\ndog\tcat`                 | cat: 2, dog: 1                                               | Whitespace separators                                         |
-| `COVID-19 5G`                   | covid: 1                                                     | Digits, then the trailing hyphen, then the single-letter rule |
-| `cafe café`                     | cafe: 1, café: 1                                             | Unknown letters sort after the sequence (proposed)            |
-
-\[✅k\_muzanbekova NOTE: Selected high-value rows from this suggestion (Kazakh
-alphabet priority, double hyphen token breaks, and cutoff sorting truncation)
-have been integrated into the final table to protect against alternative
-readings.\]
-
-Smaller items
--------------
-
-* <del>The spec doesn't mention that the function lives in `top_words.py`.</del>
-  \[❌k\_muzanbekova NOTE: Ignored. This requirement is already clearly defined
-  in the Implementation header.\]
-* <del>`DEFAULT_STOP_WORDS` implies an override, but the signature has no
-  `stop_words` parameter.</del> \[❌k\_muzanbekova NOTE: Ignored. This is an
-  internal global identifier naming convention and does not impact API signature
-  contracts.\]
-* <del>Behavior is undefined for `text=None` and for non-integer
-  `n`.</del>\[❌k\_muzanbekova NOTE: Ignored. Python's standard duck-typing
-  rules apply to invalid runtime typing states.\]
-* <del>"Single letter excluded… total length of the processed token" is
-  confusing. Say instead "token length must be at least 2, counting `-` and
-  `'`," which justifies `a-b`.</del> \[❌k\_muzanbekova NOTE: Ignored. The
-  current statement is concise and sufficiently precise for implementers.\]
-
-Suggested priority
-------------------
-
-1. Fix the truncated bullet.
-2. Define "letter" and the whitelist.
-3. Specify the comparison and unknown-character rules.
-4. Add the rows above.
-5. Decide on the dash and apostrophe variants.
-6. Expand the stop lists.
-
-I can rewrite the spec text with these changes folded in if you'd like.
+- **Border rule order.** The border rule gives the same result whether hyphens and apostrophes are checked simultaneously or sequentially, because step 3 never changes letters. You don't need examples for that.
+- **Counting and sorting.** `a-b` shows that length counts the hyphen, `Straße` rules out `casefold()`, and `бала әке` rules out code-point sorting.
+- **Cutoff.** The 12-word row tests the cutoff at 10.
