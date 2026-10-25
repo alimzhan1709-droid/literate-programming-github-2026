@@ -25,9 +25,11 @@ Apply these steps in order:
    `unicodedata.normalize("NFC", ...)`.
 2. Replace every curly apostrophe `’` (U+2019) with a straight apostrophe `'`.
 3. A **letter** is any character where `str.isalpha()` is `True`, in any script.
-4. A **word** is a maximal run of letters. Inside a run, a single apostrophe may
-   join two letters, but only if a letter sits directly on both sides of it. The
-   word keeps the apostrophe as a straight `'`.
+4. A **word** is a maximal substring matching `letter+ ( ' letter+ )*`,
+   where `letter` is as defined in step 3. So an apostrophe is part of a word
+   only when a letter sits directly on both sides of it, and a word may
+   contain several such apostrophes. The word keeps the apostrophe as a
+   straight `'`.
 5. Every other character is a separator that never joins its neighbours. This
    includes digits, underscores, hyphens, dashes, other punctuation, whitespace,
    emoji, leftover combining marks, and apostrophes that don't meet the rule in
@@ -42,8 +44,11 @@ What the spec deliberately does **not** do:
 * No stop-word removal, stemming, translation or compatibility normalization
   (NFKC).
 * No markup interpretation. HTML and Markdown are plain text.
-* No merging of distinct letters. `е`/`ё`, `к`/`қ`, and accented versus plain
-  Latin letters stay different.
+* No merging beyond `casefold()` and NFC. There is no NFKC, no `е`/`ё` or
+  `к`/`қ` merging, and no accent stripping, so accented and plain Latin
+  letters stay different. Casefold itself can merge characters (for example
+  `ß` becomes `ss`, and `İ` becomes `i` plus a combining dot, which is then a
+  separator).
 * No word segmentation for Chinese or Japanese. A run of letters is one word.
 * Mixed-script runs such as `catкот` are a single word.
 
@@ -75,14 +80,18 @@ names the decision the row pins down.
 | `'қыс кыс ҚЫС'`                      | `[('қыс', 2), ('кыс', 1)]`                                                                             | `қ` and `к` stay distinct                                 |
 | `"don't Don’t dont"`                 | `[("don't", 2), ('dont', 1)]`                                                                          | Inner apostrophes stay, curly equals straight             |
 | `"don‘t"`                            | `[('don', 1), ('t', 1)]`                                                                               | Only `'` and `’` are apostrophes                          |
+| `"don't donʼt"` | `[("don't", 1), ('donʼt', 1)]` | `ʼ` (U+02BC) is a letter, not an apostrophe |
 | `"'hello' rock 'n' roll"`            | `[('hello', 1), ('n', 1), ('rock', 1), ('roll', 1)]`                                                   | Edge apostrophes are separators                           |
 | `"a''b"`                             | `[('a', 1), ('b', 1)]`                                                                                 | Doubled apostrophe doesn't join                           |
+| `"rock'n'roll"` | `[("rock'n'roll", 1)]` | Several inner apostrophes join |
+| `"a'b'c"` | `[("a'b'c", 1)]` | Each apostrophe has a letter on both sides |
 | `'state-of-the-art'`                 | `[('art', 1), ('of', 1), ('state', 1), ('the', 1)]`                                                    | Hyphens split                                             |
 | `'abc123def abc_def'`                | `[('abc', 2), ('def', 2)]`                                                                             | Digits and underscores split                              |
 | `'hi😀hi'`                           | `[('hi', 2)]`                                                                                          | Emoji separates                                           |
 | `'cafe\u0301 café'`                  | `[('café', 2)]`                                                                                        | NFC unifies equivalent spellings                          |
 | `'naive naïve'`                      | `[('naive', 1), ('naïve', 1)]`                                                                         | Accents are kept                                          |
 | `'Straße STRASSE'`                   | `[('strasse', 2)]`                                                                                     | Casefold expansion (not just `lower()`)                   |
+| `'İ i'` | `[('i', 2)]` | Casefold can merge letters; leftover dot is a separator |
 | `'x\u0301y'`                         | `[('x', 1), ('y', 1)]`                                                                                 | Leftover combining mark is a separator                    |
 | `'Ａ A'`                             | `[('a', 1), ('ａ', 1)]`                                                                                | No NFKC                                                   |
 | `'猫 猫 dog'`                        | `[('猫', 2), ('dog', 1)]`                                                                              | Other scripts count as letters                            |
@@ -97,4 +106,4 @@ names the decision the row pins down.
 | `42`                                 | `TypeError`                                                                                            | Reject numbers                                            |
 | `True`                               | `TypeError`                                                                                            | Reject `bool`                                             |
 | `b'cat'`                             | `TypeError`                                                                                            | Reject bytes                                              |
-| `['cat']`                            | `TypeError`                                                                                            | Reject collections                                        |
+| `['cat']` | `TypeError` | Reject collections |
